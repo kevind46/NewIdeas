@@ -155,11 +155,12 @@
             renderer.shadowMap.enabled = true;
             document.getElementById('gameContainer').appendChild(renderer.domElement);
             
-            // Lighting
-            ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+            // Lighting - reduce initial ambient light even further
+            ambientLight = new THREE.AmbientLight(0x404040, 0.25); // Reduced from 0.3 to 0.25
             scene.add(ambientLight);
             
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            // Reduce directional light intensity for more dramatic shadows
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5); // Reduced from 1.0 to 0.5
             directionalLight.position.set(1, 10, 5);
             directionalLight.castShadow = true;
             directionalLight.shadow.mapSize.width = 1024;
@@ -378,14 +379,45 @@
         // Update lights with flickering and failures
         function updateLights(delta) {
             // Progress the darkness level over time
-            darknessLevel = Math.min(0.9, darknessLevel + darknessRate * delta);
+            darknessLevel = Math.min(0.98, darknessLevel + darknessRate * delta);
             
-            // Adjust ambient light based on darkness level
-            const ambientIntensity = Math.max(0.1, 0.5 - (darknessLevel * 0.4));
+            // Count how many working lights are near the player
+            const playerPosition = new THREE.Vector3(player.position.x, 0, player.position.z);
+            let nearbyWorkingLights = 0;
+            
+            for (const lightObj of cafeteriaLights) {
+                if (!lightObj.isBroken && !lightObj.isFlickering) {
+                    const lightPosition = new THREE.Vector3(
+                        lightObj.fixture.position.x,
+                        0,
+                        lightObj.fixture.position.z
+                    );
+                    const distance = playerPosition.distanceTo(lightPosition);
+                    
+                    if (distance < 10) {
+                        nearbyWorkingLights++;
+                    }
+                }
+            }
+            
+            // Make ambient intensity depend on both darkness level and nearby working lights
+            // This creates areas of near-total darkness when no lights are nearby
+            const baseAmbientLevel = 0.25 - (darknessLevel * 0.23); // Gets down to 0.02 ambient
+            let ambientIntensity;
+            
+            if (nearbyWorkingLights === 0) {
+                // If no working lights nearby, make it extremely dark
+                ambientIntensity = Math.max(0.02, baseAmbientLevel * 0.3);
+            } else {
+                // Some working lights nearby, slightly less dark
+                ambientIntensity = Math.max(0.04, baseAmbientLevel);
+            }
+            
             ambientLight.intensity = ambientIntensity;
             
-            // Adjust fog density based on darkness level
-            scene.fog.density = 0.05 + (darknessLevel * 0.05);
+            // Adjust fog density and distance based on darkness level
+            scene.fog.density = 0.05 + (darknessLevel * 0.1);
+            scene.fog.near = Math.max(3, 15 - darknessLevel * 12); // Fog starts much closer
             
             // Randomly fail more lights as time progresses
             const gameTime = clock.getElapsedTime();
@@ -452,7 +484,18 @@
                         const emissiveIntensity = flickerIntensity;
                         lightObj.bulb.material.emissive.set(emissiveValue);
                         lightObj.bulb.material.emissiveIntensity = emissiveIntensity;
+                        
+                        // Reduce light distance as darkness progresses for more isolated light pools
+                        lightObj.light.distance = 15 - darknessLevel * 5;
                     }
+                } 
+                else if (!lightObj.isBroken) {
+                    // Gradually reduce the light distance for working lights
+                    // Even functioning lights should have reduced range in the deepening darkness
+                    lightObj.light.distance = 15 - darknessLevel * 7;
+                    
+                    // Also reduce the actual intensity of working lights over time
+                    lightObj.light.intensity = lightObj.baseIntensity * (1 - darknessLevel * 0.5);
                 }
             }
         }
@@ -733,13 +776,13 @@
                 head.position.set(0, slothSize * 1.5, 0); // Position higher
                 sloth.add(head);
                 
-                // Add large, creepy eyes with glowing effect - moved to NEGATIVE Z to face player
+                // Add highly emissive eyes that will be visible in darkness
                 const eyeSize = slothSize * 0.25;
                 const eyeGeometry = new THREE.SphereGeometry(eyeSize, 16, 16);
                 const eyeMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0xFF0000, // Bright red eyes
+                    color: 0xFF0000,
                     emissive: 0xFF0000,
-                    emissiveIntensity: 1.0, // Strong glow
+                    emissiveIntensity: 3.0, // Increased for extreme contrast in darkness
                     roughness: 0.1,
                     metalness: 0.8
                 });
@@ -769,25 +812,27 @@
                 rightPupil.position.set(0, 0, -eyeSize * 0.8);
                 rightEye.add(rightPupil);
                 
-                // Add gaping mouth with sharp teeth - moved to NEGATIVE Z to face player
+                // Mouth should have a slight glow in darkness too
                 const mouthGeometry = new THREE.BoxGeometry(slothSize * 0.8, slothSize * 0.3, slothSize * 0.3);
                 const mouthMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0x800000, // Dark red
+                    color: 0x800000,
                     roughness: 0.1,
                     metalness: 0.1,
-                    emissive: 0x220000,
-                    emissiveIntensity: 0.5
+                    emissive: 0x500000, // Increased red emissive for slightly visible teeth in darkness
+                    emissiveIntensity: 0.7
                 });
                 const mouth = new THREE.Mesh(mouthGeometry, mouthMaterial);
                 mouth.position.set(0, -slothSize * 0.3, -slothSize * 0.65);
                 head.add(mouth);
                 
-                // Add sharp, prominent teeth
+                // Make teeth partially visible in darkness too
                 const teethGeometry = new THREE.ConeGeometry(slothSize * 0.08, slothSize * 0.25, 4);
                 const teethMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0xF5F5DC, // Off-white
+                    color: 0xF5F5DC,
                     roughness: 0.3,
-                    metalness: 0.1
+                    metalness: 0.1,
+                    emissive: 0x403530, // Slight emissive for teeth to be barely visible
+                    emissiveIntensity: 0.4
                 });
                 
                 // Add multiple teeth in various positions - adjusted to face player
@@ -962,6 +1007,20 @@
                     spine.position.set(0, posY, slothSize * 0.3);
                     sloth.add(spine);
                 }
+                
+                // Instead of adding point lights to the eyes, use a spotlight with narrow angle
+                // This creates a more focused effect only illuminating what's directly in front
+                const leftEyeLight = new THREE.SpotLight(0xFF0000, 0.3, 5, Math.PI / 8, 0.8, 1);
+                leftEyeLight.position.set(0, 0, 0);
+                leftEyeLight.target.position.set(0, 0, -1);
+                leftEye.add(leftEyeLight);
+                leftEye.add(leftEyeLight.target);
+                
+                const rightEyeLight = new THREE.SpotLight(0xFF0000, 0.3, 5, Math.PI / 8, 0.8, 1);
+                rightEyeLight.position.set(0, 0, 0);
+                rightEyeLight.target.position.set(0, 0, -1);
+                rightEye.add(rightEyeLight);
+                rightEye.add(rightEyeLight.target);
             }
         }
         
@@ -1159,6 +1218,34 @@
                     document.getElementById('gameOverScreen').style.display = 'block';
                     document.exitPointerLock();
                 }
+                
+                // Make sloth eyes glow more intensely as the room gets darker
+                // But spotlight effect should remain controlled
+                const head = sloth.children.find(child => child.geometry?.type === 'SphereGeometry');
+                if (head) {
+                    const eyes = head.children.filter(child => 
+                        child.material?.emissive?.r === 1 && child.material?.color?.r === 1);
+                    
+                    eyes.forEach(eye => {
+                        // Adjust eye glow based on darkness level
+                        const emissiveIntensity = 3.0 + (darknessLevel * 1.5);
+                        eye.material.emissiveIntensity = emissiveIntensity;
+                        
+                        // Find the eye light and adjust its intensity and distance
+                        const eyeLight = eye.children.find(child => child instanceof THREE.SpotLight);
+                        if (eyeLight) {
+                            // Keep light intensity moderate to avoid lighting the whole sloth
+                            eyeLight.intensity = 0.3 + (darknessLevel * 0.4);
+                            
+                            // Increase distance slightly in darker rooms
+                            eyeLight.distance = 5 + (darknessLevel * 2);
+                            
+                            // Narrow the spotlight angle more as it gets darker
+                            // This makes only the immediate area in front of eyes visible
+                            eyeLight.angle = Math.PI / 8 - (darknessLevel * 0.05);
+                        }
+                    });
+                }
             }
         }
         
@@ -1192,8 +1279,9 @@
             // Reset darkness progression
             darknessLevel = 0;
             lastLightFailTime = 0;
-            ambientLight.intensity = 0.5;
+            ambientLight.intensity = 0.25; // Match the new lower initial value
             scene.fog.density = 0.05;
+            scene.fog.near = 15;
             
             // Reset player position
             player.position.set(0, playerHeight / 2, 15);
