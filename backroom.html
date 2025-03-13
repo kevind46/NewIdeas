@@ -101,6 +101,10 @@
         let gameOver = false;
         let clock = new THREE.Clock();
         let cafeteriaLights = []; // Array to store ceiling lights
+        let ambientLight; // Store reference to ambient light
+        let darknessLevel = 0; // Darkness progression (0-1)
+        let darknessRate = 0.01; // How quickly the room darkens per second
+        let lastLightFailTime = 0; // Track when the last light failed
         
         // Movement variables
         let moveForward = false;
@@ -152,7 +156,7 @@
             document.getElementById('gameContainer').appendChild(renderer.domElement);
             
             // Lighting
-            const ambientLight = new THREE.AmbientLight(0x404040);
+            ambientLight = new THREE.AmbientLight(0x404040, 0.5);
             scene.add(ambientLight);
             
             const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -373,6 +377,32 @@
         
         // Update lights with flickering and failures
         function updateLights(delta) {
+            // Progress the darkness level over time
+            darknessLevel = Math.min(0.9, darknessLevel + darknessRate * delta);
+            
+            // Adjust ambient light based on darkness level
+            const ambientIntensity = Math.max(0.1, 0.5 - (darknessLevel * 0.4));
+            ambientLight.intensity = ambientIntensity;
+            
+            // Adjust fog density based on darkness level
+            scene.fog.density = 0.05 + (darknessLevel * 0.05);
+            
+            // Randomly fail more lights as time progresses
+            const gameTime = clock.getElapsedTime();
+            if (gameTime - lastLightFailTime > 15 && Math.random() < darknessLevel * 0.4) {
+                // Find a working light to break
+                const workingLights = cafeteriaLights.filter(light => !light.isBroken);
+                if (workingLights.length > 2) { // Keep at least 2 lights working
+                    const randomLight = workingLights[Math.floor(Math.random() * workingLights.length)];
+                    randomLight.isBroken = true;
+                    randomLight.light.intensity = 0;
+                    randomLight.bulb.material.emissive.set(0x000000);
+                    randomLight.bulb.material.color.set(0x555555);
+                    lastLightFailTime = gameTime;
+                }
+            }
+            
+            // Update remaining lights with flickering behavior
             for (const lightObj of cafeteriaLights) {
                 if (lightObj.isBroken) continue;
                 
@@ -385,39 +415,40 @@
                         // Stop flickering
                         lightObj.isFlickering = false;
                         
-                        // Small chance the light breaks permanently
-                        if (Math.random() < 0.15) {
+                        // Increased chance the light breaks permanently as darkness level increases
+                        if (Math.random() < 0.15 + (darknessLevel * 0.2)) {
                             // Light breaks
                             lightObj.isBroken = true;
                             lightObj.light.intensity = 0;
                             lightObj.bulb.material.emissive.set(0x000000);
                             lightObj.bulb.material.color.set(0x555555);
                         } else {
-                            // Light returns to normal
-                            lightObj.light.intensity = lightObj.baseIntensity;
+                            // Light returns to normal but dimmer as game progresses
+                            const adjustedIntensity = lightObj.baseIntensity * (1 - darknessLevel * 0.6);
+                            lightObj.light.intensity = adjustedIntensity;
                             lightObj.bulb.material.emissive.set(0xFFFFFF);
-                            lightObj.bulb.material.emissiveIntensity = 0.8;
+                            lightObj.bulb.material.emissiveIntensity = adjustedIntensity * 0.8;
                         }
                         
-                        // Set time until next flicker
-                        lightObj.nextFlickerTime = Math.random() * 15 + 7;
+                        // Set time until next flicker (shorter as darkness increases)
+                        lightObj.nextFlickerTime = Math.random() * 15 * (1 - darknessLevel * 0.5) + 7;
                     } else {
                         // Start flickering
                         lightObj.isFlickering = true;
-                        // Flicker for a short duration
-                        lightObj.nextFlickerTime = Math.random() * 2 + 1;
+                        // Flicker for a short duration (longer as darkness increases)
+                        lightObj.nextFlickerTime = Math.random() * 2 * (1 + darknessLevel) + 1;
                     }
                 }
                 
-                // Apply flickering effect
+                // Apply flickering effect with increased intensity as darkness grows
                 if (lightObj.isFlickering) {
-                    // Random flickering intensity
-                    if (Math.random() < 0.1) {
-                        const flickerIntensity = Math.random() * lightObj.baseIntensity;
+                    // Random flickering intensity (more aggressive in darker room)
+                    if (Math.random() < 0.1 + (darknessLevel * 0.2)) {
+                        const flickerIntensity = Math.random() * lightObj.baseIntensity * (1 - darknessLevel * 0.5);
                         lightObj.light.intensity = flickerIntensity;
                         
                         // Update bulb emissive to match light intensity
-                        const emissiveValue = flickerIntensity > 0.5 ? 0xFFFFFF : 0x555555;
+                        const emissiveValue = flickerIntensity > 0.3 ? 0xFFFFFF : 0x555555;
                         const emissiveIntensity = flickerIntensity;
                         lightObj.bulb.material.emissive.set(emissiveValue);
                         lightObj.bulb.material.emissiveIntensity = emissiveIntensity;
@@ -1158,6 +1189,12 @@
             gameOver = false;
             document.getElementById('gameOverScreen').style.display = 'none';
             
+            // Reset darkness progression
+            darknessLevel = 0;
+            lastLightFailTime = 0;
+            ambientLight.intensity = 0.5;
+            scene.fog.density = 0.05;
+            
             // Reset player position
             player.position.set(0, playerHeight / 2, 15);
             
@@ -1172,9 +1209,27 @@
             sloths = [];
             createSloths();
             
-            // Reset some lights (but not all to preserve the damaged atmosphere)
+            // Reset and repair more lights when starting a new game
             for (const light of cafeteriaLights) {
-                if (Math.random() < 0.3) { // Only 30% of broken lights get fixed
+                // Higher chance to fix lights for reset (50% instead of 30%)
+                if (Math.random() < 0.5) {
+                    light.isBroken = false;
+                    light.isFlickering = false;
+                    light.light.intensity = light.baseIntensity;
+                    light.bulb.material.emissive.set(0xFFFFFF);
+                    light.bulb.material.emissiveIntensity = 0.8;
+                    light.nextFlickerTime = Math.random() * 5 + 3;
+                }
+            }
+            
+            // Make sure at least 3 lights are working when resetting
+            let workingLights = cafeteriaLights.filter(light => !light.isBroken).length;
+            if (workingLights < 3) {
+                const brokenLights = cafeteriaLights.filter(light => light.isBroken);
+                const needToFix = 3 - workingLights;
+                
+                for (let i = 0; i < Math.min(needToFix, brokenLights.length); i++) {
+                    const light = brokenLights[i];
                     light.isBroken = false;
                     light.isFlickering = false;
                     light.light.intensity = light.baseIntensity;
