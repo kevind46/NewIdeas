@@ -1,0 +1,1333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sloth Escape: Cafeteria Chaos</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #gameContainer {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+        #gameOverScreen {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 100;
+        }
+        #playAgainBtn {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        #infoText {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            pointer-events: none;
+        }
+        #instructions {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            font-size: 24px;
+            text-align: center;
+            cursor: pointer;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer"></div>
+    <div id="infoText">
+        W: Move forward<br>
+        A: Move left<br>
+        S: Move backward<br>
+        D: Move right<br>
+        Mouse: Look left/right<br>
+        <div id="keyCounter">Keys: 0/8</div>
+        Collect all keys to escape!
+    </div>
+    <div id="gameOverScreen">
+        <h2>GAME OVER</h2>
+        <p>You were caught by a sloth!</p>
+        <button id="playAgainBtn">Play Again</button>
+    </div>
+    <div id="victoryScreen" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(0, 0, 0, 0.8); color: white; padding: 20px; border-radius: 10px; text-align: center; z-index: 100;">
+        <h2>YOU ESCAPED!</h2>
+        <p>You collected all keys and escaped the sloths!</p>
+        <button id="playAgainBtn2" style="background-color: #4CAF50; border: none; color: white; padding: 15px 32px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 5px;">Play Again</button>
+    </div>
+    <div id="instructions">
+        Click to play<br>
+        Use W,A,S,D to move and mouse to look left/right
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Game variables
+        let camera, scene, renderer;
+        let player, playerHeight = 1.7;
+        let sloths = [];
+        let objects = [];
+        let floor;
+        let keys = {};
+        let gameOver = false;
+        let clock = new THREE.Clock();
+        let cafeteriaLights = []; // Array to store ceiling lights
+        
+        // Movement variables
+        let moveForward = false;
+        let moveBackward = false;
+        let moveLeft = false;
+        let moveRight = false;
+        let canJump = false;
+        let playerVelocity = new THREE.Vector3();
+        let direction = new THREE.Vector3();
+        let prevTime = performance.now();
+        
+        // Camera control variables
+        let isPointerLocked = false;
+        
+        // Pointer lock change handler
+        function pointerLockChange() {
+            if (document.pointerLockElement === document.getElementById('gameContainer') ||
+                document.mozPointerLockElement === document.getElementById('gameContainer') ||
+                document.webkitPointerLockElement === document.getElementById('gameContainer')) {
+                // Pointer is locked
+                isPointerLocked = true;
+                document.getElementById('instructions').style.display = 'none';
+            } else {
+                // Pointer is unlocked
+                isPointerLocked = false;
+                if (!gameOver) {
+                    document.getElementById('instructions').style.display = 'flex';
+                }
+            }
+        }
+        
+        init();
+        animate();
+        
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0A0A0A); // Much darker for backroom feel
+            scene.fog = new THREE.Fog(0x080808, 15, 30);
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.y = playerHeight;
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.getElementById('gameContainer').appendChild(renderer.domElement);
+            
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(1, 10, 5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 1024;
+            directionalLight.shadow.mapSize.height = 1024;
+            scene.add(directionalLight);
+            
+            // Create floor (cafeteria floor)
+            const floorGeometry = new THREE.PlaneGeometry(40, 40);
+            const floorMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xD3D3D3,
+                roughness: 0.8,
+                metalness: 0.2
+            });
+            floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+            objects.push(floor);
+            
+            // Create walls
+            createWalls();
+            
+            // Create cafeteria objects (tables, chairs, etc.)
+            createCafeteriaObjects();
+            
+            // Create player
+            createPlayer();
+            
+            // Create keys
+            createKeys();
+            
+            // Create sloths
+            createSloths();
+            
+            // Event listeners
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            document.addEventListener('mousemove', onMouseMove);
+            document.getElementById('playAgainBtn').addEventListener('click', resetGame);
+            document.getElementById('playAgainBtn2').addEventListener('click', resetGame);
+            
+            // Set up pointer lock
+            const gameContainer = document.getElementById('gameContainer');
+            document.getElementById('instructions').addEventListener('click', () => {
+                lockPointer();
+            });
+            
+            gameContainer.addEventListener('click', () => {
+                if (!isPointerLocked) {
+                    lockPointer();
+                }
+            });
+            
+            // Handle pointer lock change
+            document.addEventListener('pointerlockchange', pointerLockChange, false);
+            document.addEventListener('mozpointerlockchange', pointerLockChange, false);
+            document.addEventListener('webkitpointerlockchange', pointerLockChange, false);
+        }
+        
+        function lockPointer() {
+            const gameContainer = document.getElementById('gameContainer');
+            gameContainer.requestPointerLock = gameContainer.requestPointerLock || 
+                                          gameContainer.mozRequestPointerLock ||
+                                          gameContainer.webkitRequestPointerLock;
+            gameContainer.requestPointerLock();
+        }
+        
+        // Create a procedural texture for the backroom-style walls
+        function createWallTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            
+            // Fill with base yellowish color
+            ctx.fillStyle = '#F5F5D0';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Add subtle pattern
+            ctx.fillStyle = '#F0F0C0';
+            for (let y = 0; y < canvas.height; y += 16) {
+                for (let x = 0; x < canvas.width; x += 16) {
+                    if (Math.random() < 0.5) {
+                        ctx.fillRect(x, y, 16, 16);
+                    }
+                }
+            }
+            
+            // Create texture from canvas
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(4, 4);
+            
+            return texture;
+        }
+
+        function createWalls() {
+            const wallMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xF5F5DC,
+                roughness: 0.9,
+                metalness: 0.1,
+                map: createWallTexture() // Add a texture for backroom-style walls
+            });
+            
+            // Wall height
+            const wallHeight = 8;
+            
+            // North wall
+            const northWallGeometry = new THREE.BoxGeometry(40, wallHeight, 0.5);
+            const northWall = new THREE.Mesh(northWallGeometry, wallMaterial);
+            northWall.position.set(0, wallHeight/2, -20);
+            northWall.receiveShadow = true;
+            northWall.castShadow = true;
+            scene.add(northWall);
+            objects.push(northWall);
+            
+            // South wall
+            const southWall = northWall.clone();
+            southWall.position.set(0, wallHeight/2, 20);
+            scene.add(southWall);
+            objects.push(southWall);
+            
+            // East wall
+            const eastWallGeometry = new THREE.BoxGeometry(0.5, wallHeight, 40);
+            const eastWall = new THREE.Mesh(eastWallGeometry, wallMaterial);
+            eastWall.position.set(20, wallHeight/2, 0);
+            eastWall.receiveShadow = true;
+            eastWall.castShadow = true;
+            scene.add(eastWall);
+            objects.push(eastWall);
+            
+            // West wall
+            const westWall = eastWall.clone();
+            westWall.position.set(-20, wallHeight/2, 0);
+            scene.add(westWall);
+            objects.push(westWall);
+            
+            // Create ceiling with proper positioning
+            const ceilingGeometry = new THREE.PlaneGeometry(40, 40);
+            const ceilingMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xF0F0F0,
+                side: THREE.DoubleSide,
+                roughness: 0.9
+            });
+            const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
+            ceiling.rotation.x = Math.PI / 2;
+            ceiling.position.set(0, 8, 0);
+            ceiling.receiveShadow = true;
+            scene.add(ceiling);
+            
+            // Create ceiling lights
+            cafeteriaLights = createCeilingLights();
+            
+            // Add a door in the north wall
+            const doorWidth = 3;
+            const doorHeight = 4;
+            const doorGeometry = new THREE.BoxGeometry(doorWidth, doorHeight, 0.3);
+            const doorMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const door = new THREE.Mesh(doorGeometry, doorMaterial);
+            door.position.set(-10, doorHeight/2, -19.8);
+            door.receiveShadow = true;
+            door.castShadow = true;
+            scene.add(door);
+            objects.push(door);
+        }
+        
+        // Add ceiling lights with flickering capability
+        function createCeilingLights() {
+            const lights = [];
+            
+            for (let x = -15; x <= 15; x += 10) {
+                for (let z = -15; z <= 15; z += 10) {
+                    // Create light fixture
+                    const fixtureGeometry = new THREE.BoxGeometry(3, 0.2, 3);
+                    const fixtureMaterial = new THREE.MeshStandardMaterial({
+                        color: 0x333333,
+                        roughness: 0.8
+                    });
+                    const fixture = new THREE.Mesh(fixtureGeometry, fixtureMaterial);
+                    fixture.position.set(x, 7.9, z);
+                    scene.add(fixture);
+                    objects.push(fixture);
+                    
+                    // Create light bulb
+                    const bulbGeometry = new THREE.BoxGeometry(2.5, 0.1, 2.5);
+                    const bulbMaterial = new THREE.MeshStandardMaterial({
+                        color: 0xFFFFFF,
+                        emissive: 0xFFFFFF,
+                        emissiveIntensity: 0.8,
+                        transparent: true,
+                        opacity: 0.9
+                    });
+                    const bulb = new THREE.Mesh(bulbGeometry, bulbMaterial);
+                    bulb.position.set(0, -0.1, 0);
+                    fixture.add(bulb);
+                    
+                    // Create point light
+                    const pointLight = new THREE.PointLight(0xFFFFFF, 1.0, 15, 2);
+                    pointLight.position.set(0, -0.3, 0);
+                    fixture.add(pointLight);
+                    
+                    // Add light properties for flickering
+                    lights.push({
+                        fixture: fixture,
+                        bulb: bulb,
+                        light: pointLight,
+                        baseIntensity: 1.0,
+                        isFlickering: false,
+                        nextFlickerTime: Math.random() * 5 + 3, // Random time until first flicker
+                        isBroken: false
+                    });
+                }
+            }
+            
+            return lights;
+        }
+        
+        // Update lights with flickering and failures
+        function updateLights(delta) {
+            for (const lightObj of cafeteriaLights) {
+                if (lightObj.isBroken) continue;
+                
+                // Countdown to next flicker event
+                lightObj.nextFlickerTime -= delta;
+                
+                if (lightObj.nextFlickerTime <= 0) {
+                    // Time to change state
+                    if (lightObj.isFlickering) {
+                        // Stop flickering
+                        lightObj.isFlickering = false;
+                        
+                        // Small chance the light breaks permanently
+                        if (Math.random() < 0.15) {
+                            // Light breaks
+                            lightObj.isBroken = true;
+                            lightObj.light.intensity = 0;
+                            lightObj.bulb.material.emissive.set(0x000000);
+                            lightObj.bulb.material.color.set(0x555555);
+                        } else {
+                            // Light returns to normal
+                            lightObj.light.intensity = lightObj.baseIntensity;
+                            lightObj.bulb.material.emissive.set(0xFFFFFF);
+                            lightObj.bulb.material.emissiveIntensity = 0.8;
+                        }
+                        
+                        // Set time until next flicker
+                        lightObj.nextFlickerTime = Math.random() * 15 + 7;
+                    } else {
+                        // Start flickering
+                        lightObj.isFlickering = true;
+                        // Flicker for a short duration
+                        lightObj.nextFlickerTime = Math.random() * 2 + 1;
+                    }
+                }
+                
+                // Apply flickering effect
+                if (lightObj.isFlickering) {
+                    // Random flickering intensity
+                    if (Math.random() < 0.1) {
+                        const flickerIntensity = Math.random() * lightObj.baseIntensity;
+                        lightObj.light.intensity = flickerIntensity;
+                        
+                        // Update bulb emissive to match light intensity
+                        const emissiveValue = flickerIntensity > 0.5 ? 0xFFFFFF : 0x555555;
+                        const emissiveIntensity = flickerIntensity;
+                        lightObj.bulb.material.emissive.set(emissiveValue);
+                        lightObj.bulb.material.emissiveIntensity = emissiveIntensity;
+                    }
+                }
+            }
+        }
+
+        // Add keys for player to collect
+        function createKeys() {
+            const keyCount = 8; // Number of keys to collect
+            const keyPositions = [
+                {x: -15, z: -15},
+                {x: 15, z: -15},
+                {x: -15, z: 15},
+                {x: 15, z: 15},
+                {x: 0, z: -18},
+                {x: -18, z: 0},
+                {x: 18, z: 0},
+                {x: 0, z: 18}
+            ];
+            
+            const keyGroup = new THREE.Group();
+            scene.add(keyGroup);
+            
+            for (let i = 0; i < keyCount; i++) {
+                const keyGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.5, 8);
+                const handleGeometry = new THREE.TorusGeometry(0.15, 0.05, 8, 16);
+                const teethGeometry = new THREE.BoxGeometry(0.15, 0.15, 0.05);
+                
+                const keyMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xD4AF37,
+                    metalness: 0.8,
+                    roughness: 0.2,
+                    emissive: 0xD4AF37,
+                    emissiveIntensity: 0.3
+                });
+                
+                const keyStem = new THREE.Mesh(keyGeometry, keyMaterial);
+                keyStem.rotation.x = Math.PI/2;
+                
+                const keyHandle = new THREE.Mesh(handleGeometry, keyMaterial);
+                keyHandle.position.set(0, 0.3, 0);
+                keyHandle.rotation.x = Math.PI/2;
+                
+                const keyTeeth = new THREE.Mesh(teethGeometry, keyMaterial);
+                keyTeeth.position.set(0, -0.2, 0);
+                
+                const key = new THREE.Group();
+                key.add(keyStem);
+                key.add(keyHandle);
+                key.add(keyTeeth);
+                
+                // Position the key
+                key.position.set(
+                    keyPositions[i].x + (Math.random() * 4 - 2),
+                    0.5,
+                    keyPositions[i].z + (Math.random() * 4 - 2)
+                );
+                
+                // Add animation data
+                key.userData = {
+                    originalY: key.position.y,
+                    floatSpeed: 1 + Math.random() * 0.5,
+                    floatHeight: 0.1 + Math.random() * 0.1,
+                    collected: false,
+                    index: i
+                };
+                
+                keyGroup.add(key);
+            }
+            
+            keys.total = keyCount;
+            keys.collected = 0;
+            keys.group = keyGroup;
+            keys.list = keyGroup.children;
+        }
+        
+        // Update key animations and check collections
+        function updateKeys(delta) {
+            if (!keys.list) return;
+            
+            const time = performance.now() * 0.001;
+            
+            for (const key of keys.list) {
+                if (key.userData.collected) continue;
+                
+                // Floating animation
+                key.position.y = key.userData.originalY + 
+                    Math.sin(time * key.userData.floatSpeed) * key.userData.floatHeight;
+                
+                // Rotation animation
+                key.rotation.y += delta * 1.5;
+                
+                // Check if player collected the key
+                if (!gameOver) {
+                    const dx = player.position.x - key.position.x;
+                    const dz = player.position.z - key.position.z;
+                    const distance = Math.sqrt(dx * dx + dz * dz);
+                    
+                    if (distance < 1) {
+                        // Collect key
+                        key.userData.collected = true;
+                        key.visible = false;
+                        
+                        // Update key count
+                        keys.collected++;
+                        
+                        // Update UI
+                        document.getElementById('keyCounter').textContent = 
+                            `Keys: ${keys.collected}/${keys.total}`;
+                        
+                        // Check if all keys are collected
+                        if (keys.collected >= keys.total) {
+                            // Player wins
+                            gameOver = true;
+                            document.getElementById('victoryScreen').style.display = 'block';
+                            document.exitPointerLock();
+                        }
+                    }
+                }
+            }
+        }
+        
+        function createCafeteriaObjects() {
+                            // Create tables in a more asymmetric pattern
+            const tablePositions = [
+                // Left side cluster
+                {x: -15, z: -10},
+                {x: -13, z: -5},
+                {x: -10, z: -12},
+                {x: -8, z: -7},
+                // Center area (more sparse)
+                {x: -2, z: 0},
+                {x: 3, z: -3},
+                {x: 4, z: 5},
+                {x: -5, z: 7},
+                // Right side (scattered)
+                {x: 10, z: -8},
+                {x: 12, z: -2},
+                {x: 13, z: 10},
+                {x: 8, z: 12},
+                // Make sure there's no table at spawn point (0, 15)
+            ];
+            
+            for (const pos of tablePositions) {
+                createTable(pos.x, pos.z);
+            }
+            
+            // Create serving counter (L-shaped)
+            const mainCounterGeometry = new THREE.BoxGeometry(30, 1.2, 3);
+            const counterMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const mainCounter = new THREE.Mesh(mainCounterGeometry, counterMaterial);
+            mainCounter.position.set(-3, 0.6, -16);
+            mainCounter.castShadow = true;
+            mainCounter.receiveShadow = true;
+            scene.add(mainCounter);
+            objects.push(mainCounter);
+            
+            // Side counter (L shape extension)
+            const sideCounterGeometry = new THREE.BoxGeometry(3, 1.2, 10);
+            const sideCounter = new THREE.Mesh(sideCounterGeometry, counterMaterial);
+            sideCounter.position.set(13, 0.6, -11);
+            sideCounter.castShadow = true;
+            sideCounter.receiveShadow = true;
+            scene.add(sideCounter);
+            objects.push(sideCounter);
+            
+            // Create food display on counter
+            const foodTypes = [0xFFD700, 0x228B22, 0xDC143C, 0xFFA500, 0x8B0000, 0xFFFFE0];
+            for (let i = -15; i <= 10; i += 5) {
+                const foodDisplayGeometry = new THREE.BoxGeometry(3, 0.8, 2);
+                const foodDisplayMaterial = new THREE.MeshStandardMaterial({ 
+                    color: foodTypes[Math.floor(Math.random() * foodTypes.length)]
+                });
+                const foodDisplay = new THREE.Mesh(foodDisplayGeometry, foodDisplayMaterial);
+                foodDisplay.position.set(i, 1.45, -16);
+                foodDisplay.castShadow = true;
+                foodDisplay.receiveShadow = true;
+                scene.add(foodDisplay);
+                objects.push(foodDisplay);
+            }
+            
+            // Add a drink machine
+            const machineGeometry = new THREE.BoxGeometry(2, 4, 1.5);
+            const machineMaterial = new THREE.MeshStandardMaterial({ color: 0x708090 });
+            const drinkMachine = new THREE.Mesh(machineGeometry, machineMaterial);
+            drinkMachine.position.set(13, 2, -16);
+            drinkMachine.castShadow = true;
+            drinkMachine.receiveShadow = true;
+            scene.add(drinkMachine);
+            objects.push(drinkMachine);
+            
+            // Add a salad bar in the middle
+            const saladBarGeometry = new THREE.BoxGeometry(8, 1.5, 4);
+            const saladBarMaterial = new THREE.MeshStandardMaterial({ color: 0x32CD32 });
+            const saladBar = new THREE.Mesh(saladBarGeometry, saladBarMaterial);
+            saladBar.position.set(-7, 0.75, 0);
+            saladBar.castShadow = true;
+            saladBar.receiveShadow = true;
+            scene.add(saladBar);
+            objects.push(saladBar);
+            
+            // Add a check-out register
+            const registerGeometry = new THREE.BoxGeometry(2, 1, 2);
+            const registerMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+            const register = new THREE.Mesh(registerGeometry, registerMaterial);
+            register.position.set(13, 1.2, -5);
+            register.castShadow = true;
+            register.receiveShadow = true;
+            scene.add(register);
+            objects.push(register);
+            
+            // Create random chairs (not attached to tables)
+            const chairPositions = [
+                {x: -17, z: 5},
+                {x: 6, z: -12},
+                {x: 16, z: 5},
+                {x: -3, z: 13},
+                {x: 0, z: -15}
+            ];
+            
+            for (const pos of chairPositions) {
+                createChair(pos.x, pos.z);
+            }
+            
+            // Create trash cans
+            createTrashCan(-18, 18);
+            createTrashCan(18, 18);
+            createTrashCan(18, -18);
+            createTrashCan(-18, -18);
+            createTrashCan(0, 18);
+        }
+        
+        function createTable(x, z) {
+            // Table top
+            const tableTopGeometry = new THREE.BoxGeometry(5, 0.2, 3);
+            const tableTopMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const tableTop = new THREE.Mesh(tableTopGeometry, tableTopMaterial);
+            tableTop.position.set(x, 0.9, z);
+            tableTop.castShadow = true;
+            tableTop.receiveShadow = true;
+            scene.add(tableTop);
+            objects.push(tableTop);
+            
+            // Table legs
+            const legGeometry = new THREE.BoxGeometry(0.2, 0.9, 0.2);
+            const legMaterial = new THREE.MeshStandardMaterial({ color: 0x696969 });
+            
+            const positions = [
+                {x: x - 2.3, z: z - 1.3},
+                {x: x - 2.3, z: z + 1.3},
+                {x: x + 2.3, z: z - 1.3},
+                {x: x + 2.3, z: z + 1.3}
+            ];
+            
+            for (const pos of positions) {
+                const leg = new THREE.Mesh(legGeometry, legMaterial);
+                leg.position.set(pos.x, 0.45, pos.z);
+                leg.castShadow = true;
+                leg.receiveShadow = true;
+                scene.add(leg);
+                objects.push(leg);
+            }
+            
+            // Create benches
+            const benchGeometry = new THREE.BoxGeometry(5, 0.1, 0.8);
+            const benchMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            
+            const frontBench = new THREE.Mesh(benchGeometry, benchMaterial);
+            frontBench.position.set(x, 0.5, z + 2);
+            frontBench.castShadow = true;
+            frontBench.receiveShadow = true;
+            scene.add(frontBench);
+            objects.push(frontBench);
+            
+            const backBench = frontBench.clone();
+            backBench.position.set(x, 0.5, z - 2);
+            scene.add(backBench);
+            objects.push(backBench);
+        }
+        
+        function createChair(x, z) {
+            // Chair seat
+            const seatGeometry = new THREE.BoxGeometry(0.8, 0.1, 0.8);
+            const chairMaterial = new THREE.MeshStandardMaterial({ color: 0x8B0000 });
+            const seat = new THREE.Mesh(seatGeometry, chairMaterial);
+            seat.position.set(x, 0.5, z);
+            seat.castShadow = true;
+            seat.receiveShadow = true;
+            scene.add(seat);
+            objects.push(seat);
+            
+            // Chair back
+            const backGeometry = new THREE.BoxGeometry(0.8, 1, 0.1);
+            const back = new THREE.Mesh(backGeometry, chairMaterial);
+            back.position.set(x, 1.05, z + 0.35);
+            back.castShadow = true;
+            back.receiveShadow = true;
+            scene.add(back);
+            objects.push(back);
+            
+            // Chair legs
+            const legGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.5, 8);
+            const legMaterial = new THREE.MeshStandardMaterial({ color: 0x696969 });
+            
+            const positions = [
+                {x: x - 0.3, z: z - 0.3},
+                {x: x - 0.3, z: z + 0.3},
+                {x: x + 0.3, z: z - 0.3},
+                {x: x + 0.3, z: z + 0.3}
+            ];
+            
+            for (const pos of positions) {
+                const leg = new THREE.Mesh(legGeometry, legMaterial);
+                leg.position.set(pos.x, 0.25, pos.z);
+                leg.castShadow = true;
+                leg.receiveShadow = true;
+                scene.add(leg);
+                objects.push(leg);
+            }
+        }
+        
+        function createTrashCan(x, z) {
+            const trashCanGeometry = new THREE.CylinderGeometry(0.7, 0.5, 1.5, 8);
+            const trashCanMaterial = new THREE.MeshStandardMaterial({ color: 0x2E8B57 });
+            const trashCan = new THREE.Mesh(trashCanGeometry, trashCanMaterial);
+            trashCan.position.set(x, 0.75, z);
+            trashCan.castShadow = true;
+            trashCan.receiveShadow = true;
+            scene.add(trashCan);
+            objects.push(trashCan);
+        }
+        
+        function createPlayer() {
+            // Player body
+            const playerGeometry = new THREE.CylinderGeometry(0.3, 0.3, playerHeight, 32);
+            const playerMaterial = new THREE.MeshStandardMaterial({ color: 0x1E90FF });
+            player = new THREE.Mesh(playerGeometry, playerMaterial);
+            player.position.set(0, playerHeight / 2, 15); // Spawn in a clear area near the south wall
+            player.castShadow = true;
+            player.receiveShadow = true;
+            scene.add(player);
+            
+            // Player collision box (much smaller than visual model)
+            player.collisionRadius = 0.2;
+            
+            // Set initial camera position to player
+            camera.position.copy(player.position);
+            camera.position.y = playerHeight;
+        }
+        
+        function createSloths() {
+            const slothPositions = [
+                {x: 15, z: -15},
+                {x: -15, z: -15},
+                {x: -15, z: 15}
+            ];
+            
+            const slothColors = [
+                0x8B4513, // Brown
+                0x6B8E23, // Olive
+                0x4B3621  // Dark brown
+            ];
+            
+            for (let i = 0; i < 3; i++) {
+                const slothSize = 0.5; // Initial size
+                // Make sloths taller and lankier
+                const slothGeometry = new THREE.BoxGeometry(slothSize * 0.8, slothSize * 2.5, slothSize * 0.7);
+                
+                // Create sloth body with darker color
+                const slothMaterial = new THREE.MeshStandardMaterial({ 
+                    color: slothColors[i],
+                    roughness: 0.9, // Rough texture
+                    metalness: 0.1
+                });
+                const sloth = new THREE.Mesh(slothGeometry, slothMaterial);
+                sloth.position.set(slothPositions[i].x, slothSize * 2.5 / 2, slothPositions[i].z);
+                sloth.castShadow = true;
+                sloth.receiveShadow = true;
+                
+                // Add sloth properties
+                sloth.size = slothSize;
+                sloth.growthRate = 0.01; // Growth rate per second
+                sloth.baseSpeed = 1; // Base speed
+                sloth.speedGrowthFactor = 3; // Speed grows much slower than size
+                
+                scene.add(sloth);
+                sloths.push(sloth);
+                
+                // Add head - slightly larger and more defined
+                const headGeometry = new THREE.SphereGeometry(slothSize * 0.8, 16, 16);
+                const headMaterial = new THREE.MeshStandardMaterial({ 
+                    color: slothColors[i],
+                    roughness: 0.7,
+                });
+                const head = new THREE.Mesh(headGeometry, headMaterial);
+                head.position.set(0, slothSize * 1.5, 0); // Position higher
+                sloth.add(head);
+                
+                // Add large, creepy eyes with glowing effect - moved to NEGATIVE Z to face player
+                const eyeSize = slothSize * 0.25;
+                const eyeGeometry = new THREE.SphereGeometry(eyeSize, 16, 16);
+                const eyeMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xFF0000, // Bright red eyes
+                    emissive: 0xFF0000,
+                    emissiveIntensity: 1.0, // Strong glow
+                    roughness: 0.1,
+                    metalness: 0.8
+                });
+                
+                const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+                leftEye.position.set(slothSize * 0.45, slothSize * 0.3, -slothSize * 0.6);
+                head.add(leftEye);
+                
+                const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+                // Make eyes asymmetrical for more creepy effect
+                rightEye.scale.set(0.9, 1.1, 1);
+                rightEye.position.set(-slothSize * 0.45, slothSize * 0.4, -slothSize * 0.6);
+                head.add(rightEye);
+                
+                // Add snake-like pupils - vertical slits
+                const pupilGeometry = new THREE.BoxGeometry(slothSize * 0.04, slothSize * 0.2, slothSize * 0.06);
+                const pupilMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x000000,
+                    roughness: 0
+                });
+                
+                const leftPupil = new THREE.Mesh(pupilGeometry, pupilMaterial);
+                leftPupil.position.set(0, 0, -eyeSize * 0.8);
+                leftEye.add(leftPupil);
+                
+                const rightPupil = new THREE.Mesh(pupilGeometry, pupilMaterial);
+                rightPupil.position.set(0, 0, -eyeSize * 0.8);
+                rightEye.add(rightPupil);
+                
+                // Add gaping mouth with sharp teeth - moved to NEGATIVE Z to face player
+                const mouthGeometry = new THREE.BoxGeometry(slothSize * 0.8, slothSize * 0.3, slothSize * 0.3);
+                const mouthMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x800000, // Dark red
+                    roughness: 0.1,
+                    metalness: 0.1,
+                    emissive: 0x220000,
+                    emissiveIntensity: 0.5
+                });
+                const mouth = new THREE.Mesh(mouthGeometry, mouthMaterial);
+                mouth.position.set(0, -slothSize * 0.3, -slothSize * 0.65);
+                head.add(mouth);
+                
+                // Add sharp, prominent teeth
+                const teethGeometry = new THREE.ConeGeometry(slothSize * 0.08, slothSize * 0.25, 4);
+                const teethMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xF5F5DC, // Off-white
+                    roughness: 0.3,
+                    metalness: 0.1
+                });
+                
+                // Add multiple teeth in various positions - adjusted to face player
+                const teethPositions = [
+                    {x: -0.3, y: 0.12, z: 0.05, r: 0.1},
+                    {x: -0.18, y: 0.08, z: 0, r: -0.2},
+                    {x: -0.05, y: 0.15, z: 0.15, r: 0.1},
+                    {x: 0.05, y: 0.1, z: 0.05, r: -0.1},
+                    {x: 0.18, y: 0.12, z: 0, r: 0.2},
+                    {x: 0.3, y: 0.08, z: 0.1, r: -0.15}
+                ];
+                
+                for (const pos of teethPositions) {
+                    const tooth = new THREE.Mesh(teethGeometry, teethMaterial);
+                    tooth.rotation.x = Math.PI / 2 + pos.r; // Adjust rotation to face forward
+                    tooth.position.set(slothSize * pos.x, slothSize * pos.y, -slothSize * pos.z);
+                    mouth.add(tooth);
+                    
+                    // Add bottom row of teeth too
+                    const bottomTooth = tooth.clone();
+                    bottomTooth.rotation.x = -Math.PI / 2 - pos.r;
+                    bottomTooth.position.y = -slothSize * pos.y - slothSize * 0.15;
+                    mouth.add(bottomTooth);
+                }
+                
+                // Add weird bulbous nose - moved to NEGATIVE Z to face player
+                const noseGeometry = new THREE.SphereGeometry(slothSize * 0.2, 8, 8);
+                noseGeometry.scale(1, 1.2, 1.3);
+                const noseMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x000000,
+                    roughness: 0.8
+                });
+                const nose = new THREE.Mesh(noseGeometry, noseMaterial);
+                nose.position.set(0, -slothSize * 0.1, -slothSize * 0.8);
+                head.add(nose);
+                
+                // Add more prominent nostrils - adjusted to face player
+                const nostrilGeometry = new THREE.CircleGeometry(slothSize * 0.06, 8);
+                const nostrilMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x330000,
+                    side: THREE.DoubleSide,
+                    roughness: 0.1
+                });
+                
+                const leftNostril = new THREE.Mesh(nostrilGeometry, nostrilMaterial);
+                leftNostril.position.set(slothSize * 0.1, slothSize * 0.05, -slothSize * 0.1);
+                leftNostril.rotation.y = -Math.PI / 2;
+                nose.add(leftNostril);
+                
+                const rightNostril = leftNostril.clone();
+                rightNostril.position.set(-slothSize * 0.1, slothSize * 0.05, -slothSize * 0.1);
+                nose.add(rightNostril);
+                
+                // Add super long lankier arms with visible joints
+                const armGeometry = new THREE.CylinderGeometry(slothSize * 0.15, slothSize * 0.1, slothSize * 2.5, 8);
+                const armMaterial = new THREE.MeshStandardMaterial({ color: slothColors[i] });
+                
+                const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+                leftArm.rotation.z = Math.PI / 3;
+                leftArm.position.set(slothSize * 0.6, slothSize * 0.6, 0);
+                sloth.add(leftArm);
+                
+                const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+                rightArm.rotation.z = -Math.PI / 3;
+                rightArm.position.set(-slothSize * 0.6, slothSize * 0.6, 0);
+                sloth.add(rightArm);
+                
+                // Add elbow joints for creepier look
+                const jointGeometry = new THREE.SphereGeometry(slothSize * 0.18, 8, 8);
+                const jointMaterial = new THREE.MeshStandardMaterial({ 
+                    color: slothColors[i],
+                    roughness: 0.9
+                });
+                
+                const leftJoint = new THREE.Mesh(jointGeometry, jointMaterial);
+                leftJoint.position.set(0, -slothSize * 0.5, 0);
+                leftArm.add(leftJoint);
+                
+                const rightJoint = leftJoint.clone();
+                rightJoint.position.set(0, -slothSize * 0.5, 0);
+                rightArm.add(rightJoint);
+                
+                // Simplified claw implementation with just 3 clean claws per hand
+                const clawGeometry = new THREE.ConeGeometry(slothSize * 0.1, slothSize * 0.4, 3);
+                const clawMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xF0E68C, // Khaki color
+                    roughness: 0.3,
+                    metalness: 0.6
+                });
+                
+                // Create a "hand" object to hold the claws at the end of each arm
+                const leftHand = new THREE.Object3D();
+                leftHand.position.set(0, -slothSize * 1.2, 0);
+                leftArm.add(leftHand);
+                
+                const rightHand = new THREE.Object3D();
+                rightHand.position.set(0, -slothSize * 1.2, 0);
+                rightArm.add(rightHand);
+                
+                // Add three claws to left hand in a clear arrangement
+                const leftClawPositions = [
+                    { x: -slothSize * 0.15, angle: -0.2 },
+                    { x: 0, angle: 0 },
+                    { x: slothSize * 0.15, angle: 0.2 }
+                ];
+                
+                for (const pos of leftClawPositions) {
+                    const claw = new THREE.Mesh(clawGeometry, clawMaterial);
+                    claw.rotation.x = -Math.PI / 2 + pos.angle;
+                    claw.position.set(pos.x, 0, 0);
+                    leftHand.add(claw);
+                }
+                
+                // Add three claws to right hand in a clear arrangement
+                const rightClawPositions = [
+                    { x: -slothSize * 0.15, angle: -0.2 },
+                    { x: 0, angle: 0 },
+                    { x: slothSize * 0.15, angle: 0.2 }
+                ];
+                
+                for (const pos of rightClawPositions) {
+                    const claw = new THREE.Mesh(clawGeometry, clawMaterial);
+                    claw.rotation.x = -Math.PI / 2 + pos.angle;
+                    claw.position.set(pos.x, 0, 0);
+                    rightHand.add(claw);
+                }
+                
+                // Add legs
+                const legGeometry = new THREE.CylinderGeometry(slothSize * 0.15, slothSize * 0.1, slothSize * 1.2, 8);
+                const legMaterial = new THREE.MeshStandardMaterial({ color: slothColors[i] });
+                
+                const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+                leftLeg.position.set(slothSize * 0.3, -slothSize * 1.2, 0);
+                sloth.add(leftLeg);
+                
+                const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+                rightLeg.position.set(-slothSize * 0.3, -slothSize * 1.2, 0);
+                sloth.add(rightLeg);
+                
+                // Simplified foot claws - just three per foot
+                for (const foot of [leftLeg, rightLeg]) {
+                    const footHand = new THREE.Object3D();
+                    footHand.position.set(0, -slothSize * 0.6, 0);
+                    foot.add(footHand);
+                    
+                    const footClawPositions = [
+                        { x: -slothSize * 0.1, z: slothSize * 0.1 },
+                        { x: 0, z: slothSize * 0.15 },
+                        { x: slothSize * 0.1, z: slothSize * 0.1 }
+                    ];
+                    
+                    for (const pos of footClawPositions) {
+                        const claw = new THREE.Mesh(clawGeometry.clone(), clawMaterial);
+                        claw.scale.set(0.7, 0.7, 0.7);
+                        claw.rotation.x = Math.PI;
+                        claw.position.copy(new THREE.Vector3(pos.x, 0, pos.z));
+                        footHand.add(claw);
+                    }
+                }
+                
+                // Add bony spine to back for extra creepiness
+                const spineCount = 5;
+                for (let s = 0; s < spineCount; s++) {
+                    const spineGeometry = new THREE.ConeGeometry(slothSize * 0.08, slothSize * 0.3, 4);
+                    const spineMaterial = new THREE.MeshStandardMaterial({ 
+                        color: slothColors[i],
+                        roughness: 0.7
+                    });
+                    const spine = new THREE.Mesh(spineGeometry, spineMaterial);
+                    const posY = slothSize * 1.0 - s * (slothSize * 0.5);
+                    spine.rotation.x = -Math.PI / 2;
+                    spine.position.set(0, posY, slothSize * 0.3);
+                    sloth.add(spine);
+                }
+            }
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function onKeyDown(event) {
+            if (gameOver) return;
+            
+            switch (event.code) {
+                case 'KeyW':
+                    moveForward = true;
+                    break;
+                case 'KeyA':
+                    moveLeft = true;
+                    break;
+                case 'KeyS':
+                    moveBackward = true;
+                    break;
+                case 'KeyD':
+                    moveRight = true;
+                    break;
+            }
+        }
+        
+        function onKeyUp(event) {
+            if (gameOver) return;
+            
+            switch (event.code) {
+                case 'KeyW':
+                    moveForward = false;
+                    break;
+                case 'KeyA':
+                    moveLeft = false;
+                    break;
+                case 'KeyS':
+                    moveBackward = false;
+                    break;
+                case 'KeyD':
+                    moveRight = false;
+                    break;
+            }
+        }
+        
+        function onMouseMove(event) {
+            if (!isPointerLocked || gameOver) return;
+            
+            const movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
+            
+            // Only allow horizontal rotation (no looking up/down)
+            camera.rotation.y -= movementX * 0.002;
+            camera.rotation.x = 0; // Lock camera to be parallel to floor
+        }
+        
+        function updatePlayerPosition(delta) {
+            if (gameOver || !isPointerLocked) return;
+            
+            const speed = 5.0;
+            
+            // Calculate movement direction
+            direction.z = Number(moveForward) - Number(moveBackward);
+            direction.x = Number(moveLeft) - Number(moveRight); // Ensure left is negative X, right is positive X
+            direction.normalize();
+            
+            // Calculate the rotation based on camera yaw (y-rotation)
+            const rotationMatrix = new THREE.Matrix4();
+            rotationMatrix.makeRotationY(camera.rotation.y);
+            
+            // Apply rotation to direction vector
+            direction.applyMatrix4(rotationMatrix);
+            
+            // Move player
+            player.position.x -= direction.x * speed * delta;
+            player.position.z -= direction.z * speed * delta;
+            
+            // Keep player within bounds
+            const boundaryLimit = 19.5;
+            player.position.x = Math.max(-boundaryLimit, Math.min(boundaryLimit, player.position.x));
+            player.position.z = Math.max(-boundaryLimit, Math.min(boundaryLimit, player.position.z));
+            
+            // Collision detection with objects - keep track of original position
+            const originalPosition = player.position.clone();
+            let collision = false;
+            
+            for (const object of objects) {
+                if (object instanceof THREE.Mesh && object !== floor) {
+                    // Simple box collision detection with very tight hitboxes
+                    if (object.geometry.type === 'BoxGeometry') {
+                        // Get object dimensions with an even smaller buffer
+                        const box = new THREE.Box3().setFromObject(object);
+                        const buffer = 0.2; // Increase buffer to make hitboxes tighter
+                        const objectBox = new THREE.Box3(
+                            new THREE.Vector3(box.min.x + buffer, box.min.y, box.min.z + buffer),
+                            new THREE.Vector3(box.max.x - buffer, box.max.y, box.max.z - buffer)
+                        );
+                        
+                        // Use a very small collision radius for player
+                        const playerRadius = 0.15;
+                        
+                        // Check for collision
+                        if (player.position.x + playerRadius > objectBox.min.x && 
+                            player.position.x - playerRadius < objectBox.max.x &&
+                            player.position.z + playerRadius > objectBox.min.z &&
+                            player.position.z - playerRadius < objectBox.max.z) {
+                            
+                            collision = true;
+                            
+                            // Calculate overlap on each axis
+                            const overlapX1 = player.position.x + playerRadius - objectBox.min.x;
+                            const overlapX2 = objectBox.max.x - (player.position.x - playerRadius);
+                            const overlapZ1 = player.position.z + playerRadius - objectBox.min.z;
+                            const overlapZ2 = objectBox.max.z - (player.position.z - playerRadius);
+                            
+                            // Find the smallest overlap
+                            const minOverlap = Math.min(overlapX1, overlapX2, overlapZ1, overlapZ2);
+                            
+                            // Resolve collision with the minimal push
+                            if (minOverlap === overlapX1) {
+                                player.position.x = objectBox.min.x - playerRadius - 0.01;
+                            } else if (minOverlap === overlapX2) {
+                                player.position.x = objectBox.max.x + playerRadius + 0.01;
+                            } else if (minOverlap === overlapZ1) {
+                                player.position.z = objectBox.min.z - playerRadius - 0.01;
+                            } else if (minOverlap === overlapZ2) {
+                                player.position.z = objectBox.max.z + playerRadius + 0.01;
+                            }
+                        }
+                    }
+                    // Cylinder collision detection for trash cans with very tight radius
+                    else if (object.geometry.type === 'CylinderGeometry') {
+                        const dx = player.position.x - object.position.x;
+                        const dz = player.position.z - object.position.z;
+                        const distance = Math.sqrt(dx * dx + dz * dz);
+                        const minDistance = 0.4; // Reduced collision distance
+                        
+                        if (distance < minDistance) {
+                            // Push player away from trash can
+                            const angle = Math.atan2(dz, dx);
+                            player.position.x = object.position.x + Math.cos(angle) * (minDistance + 0.01);
+                            player.position.z = object.position.z + Math.sin(angle) * (minDistance + 0.01);
+                        }
+                    }
+                }
+            }
+            
+            // Update camera position
+            camera.position.copy(player.position);
+            camera.position.y = playerHeight;
+        }
+        
+        function updateSloths(delta) {
+            if (gameOver) return;
+            
+            for (const sloth of sloths) {
+                // Grow sloth
+                sloth.size += sloth.growthRate * delta;
+                
+                // Update sloth geometry
+                sloth.scale.set(
+                    sloth.size / 0.5,
+                    sloth.size / 0.5,
+                    sloth.size / 0.5
+                );
+                
+                // Update sloth position (height adjustment for growing)
+                sloth.position.y = sloth.size * 2.5 / 2;
+                
+                // Calculate direction to player
+                const directionToPlayer = new THREE.Vector3();
+                directionToPlayer.subVectors(player.position, sloth.position);
+                directionToPlayer.y = 0; // Keep on ground plane
+                directionToPlayer.normalize();
+                
+                // Calculate speed (increases slowly with size)
+                const speed = sloth.baseSpeed + (sloth.size - 0.5) * sloth.speedGrowthFactor;
+                
+                // Move sloth towards player
+                sloth.position.x += directionToPlayer.x * speed * delta;
+                sloth.position.z += directionToPlayer.z * speed * delta;
+                
+                // Rotate sloth to face player - add PI to make it face the opposite direction (toward player)
+                const angle = Math.atan2(directionToPlayer.x, directionToPlayer.z) + Math.PI;
+                sloth.rotation.y = angle;
+                
+                // Check for collision with player
+                const dx = player.position.x - sloth.position.x;
+                const dz = player.position.z - sloth.position.z;
+                const distance = Math.sqrt(dx * dx + dz * dz);
+                
+                if (distance < player.collisionRadius + sloth.size * 0.5) {
+                    gameOver = true;
+                    document.getElementById('gameOverScreen').style.display = 'block';
+                    document.exitPointerLock();
+                }
+            }
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const delta = clock.getDelta();
+            
+            if (!gameOver) {
+                updatePlayerPosition(delta);
+                updateSloths(delta);
+                updateLights(delta); // Update the flickering lights
+                updateKeys(delta);   // Update the keys
+                
+                // Add new sloth every 30 seconds, up to a maximum of 8 sloths
+                if (sloths.length < 8) {
+                    const gameTime = clock.getElapsedTime();
+                    if (gameTime > sloths.length * 30) {
+                        createSloths(1); // Create an additional sloth
+                    }
+                }
+            }
+            
+            renderer.render(scene, camera);
+        }
+        
+        function resetGame() {
+            // Reset game state
+            gameOver = false;
+            document.getElementById('gameOverScreen').style.display = 'none';
+            document.getElementById('victoryScreen').style.display = 'none';
+            
+            // Reset player position
+            player.position.set(0, playerHeight / 2, 15);
+            
+            // Reset camera position
+            camera.position.copy(player.position);
+            camera.position.y = playerHeight;
+            
+            // Reset keys
+            if (keys.group) {
+                scene.remove(keys.group);
+            }
+            createKeys();
+            document.getElementById('keyCounter').textContent = 'Keys: 0/8';
+            
+            // Reset sloths
+            for (const sloth of sloths) {
+                scene.remove(sloth);
+            }
+            sloths = [];
+            createSloths();
+            
+            // Reset some lights (but not all to preserve the damaged atmosphere)
+            for (const light of cafeteriaLights) {
+                if (Math.random() < 0.3) { // Only 30% of broken lights get fixed
+                    light.isBroken = false;
+                    light.isFlickering = false;
+                    light.light.intensity = light.baseIntensity;
+                    light.bulb.material.emissive.set(0xFFFFFF);
+                    light.bulb.material.emissiveIntensity = 0.8;
+                    light.nextFlickerTime = Math.random() * 5 + 3;
+                }
+            }
+            
+            // Re-lock the pointer if it was unlocked
+            lockPointer();
+        }
+        
+        // Prevent context menu on right-click
+        document.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+        });
+    </script>
+</body>
+</html>
