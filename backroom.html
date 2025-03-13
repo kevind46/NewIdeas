@@ -78,18 +78,12 @@
         S: Move backward<br>
         D: Move right<br>
         Mouse: Look left/right<br>
-        <div id="keyCounter">Keys: 0/8</div>
-        Collect all keys to escape!
+        Escape the growing sloths!
     </div>
     <div id="gameOverScreen">
         <h2>GAME OVER</h2>
         <p>You were caught by a sloth!</p>
         <button id="playAgainBtn">Play Again</button>
-    </div>
-    <div id="victoryScreen" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(0, 0, 0, 0.8); color: white; padding: 20px; border-radius: 10px; text-align: center; z-index: 100;">
-        <h2>YOU ESCAPED!</h2>
-        <p>You collected all keys and escaped the sloths!</p>
-        <button id="playAgainBtn2" style="background-color: #4CAF50; border: none; color: white; padding: 15px 32px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 5px;">Play Again</button>
     </div>
     <div id="instructions">
         Click to play<br>
@@ -104,7 +98,6 @@
         let sloths = [];
         let objects = [];
         let floor;
-        let keys = {};
         let gameOver = false;
         let clock = new THREE.Clock();
         let cafeteriaLights = []; // Array to store ceiling lights
@@ -191,9 +184,6 @@
             // Create player
             createPlayer();
             
-            // Create keys
-            createKeys();
-            
             // Create sloths
             createSloths();
             
@@ -203,7 +193,6 @@
             document.addEventListener('keyup', onKeyUp);
             document.addEventListener('mousemove', onMouseMove);
             document.getElementById('playAgainBtn').addEventListener('click', resetGame);
-            document.getElementById('playAgainBtn2').addEventListener('click', resetGame);
             
             // Set up pointer lock
             const gameContainer = document.getElementById('gameContainer');
@@ -437,122 +426,6 @@
             }
         }
 
-        // Add keys for player to collect
-        function createKeys() {
-            const keyCount = 8; // Number of keys to collect
-            const keyPositions = [
-                {x: -15, z: -15},
-                {x: 15, z: -15},
-                {x: -15, z: 15},
-                {x: 15, z: 15},
-                {x: 0, z: -18},
-                {x: -18, z: 0},
-                {x: 18, z: 0},
-                {x: 0, z: 18}
-            ];
-            
-            const keyGroup = new THREE.Group();
-            scene.add(keyGroup);
-            
-            for (let i = 0; i < keyCount; i++) {
-                const keyGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.5, 8);
-                const handleGeometry = new THREE.TorusGeometry(0.15, 0.05, 8, 16);
-                const teethGeometry = new THREE.BoxGeometry(0.15, 0.15, 0.05);
-                
-                const keyMaterial = new THREE.MeshStandardMaterial({
-                    color: 0xD4AF37,
-                    metalness: 0.8,
-                    roughness: 0.2,
-                    emissive: 0xD4AF37,
-                    emissiveIntensity: 0.3
-                });
-                
-                const keyStem = new THREE.Mesh(keyGeometry, keyMaterial);
-                keyStem.rotation.x = Math.PI/2;
-                
-                const keyHandle = new THREE.Mesh(handleGeometry, keyMaterial);
-                keyHandle.position.set(0, 0.3, 0);
-                keyHandle.rotation.x = Math.PI/2;
-                
-                const keyTeeth = new THREE.Mesh(teethGeometry, keyMaterial);
-                keyTeeth.position.set(0, -0.2, 0);
-                
-                const key = new THREE.Group();
-                key.add(keyStem);
-                key.add(keyHandle);
-                key.add(keyTeeth);
-                
-                // Position the key
-                key.position.set(
-                    keyPositions[i].x + (Math.random() * 4 - 2),
-                    0.5,
-                    keyPositions[i].z + (Math.random() * 4 - 2)
-                );
-                
-                // Add animation data
-                key.userData = {
-                    originalY: key.position.y,
-                    floatSpeed: 1 + Math.random() * 0.5,
-                    floatHeight: 0.1 + Math.random() * 0.1,
-                    collected: false,
-                    index: i
-                };
-                
-                keyGroup.add(key);
-            }
-            
-            keys.total = keyCount;
-            keys.collected = 0;
-            keys.group = keyGroup;
-            keys.list = keyGroup.children;
-        }
-        
-        // Update key animations and check collections
-        function updateKeys(delta) {
-            if (!keys.list) return;
-            
-            const time = performance.now() * 0.001;
-            
-            for (const key of keys.list) {
-                if (key.userData.collected) continue;
-                
-                // Floating animation
-                key.position.y = key.userData.originalY + 
-                    Math.sin(time * key.userData.floatSpeed) * key.userData.floatHeight;
-                
-                // Rotation animation
-                key.rotation.y += delta * 1.5;
-                
-                // Check if player collected the key
-                if (!gameOver) {
-                    const dx = player.position.x - key.position.x;
-                    const dz = player.position.z - key.position.z;
-                    const distance = Math.sqrt(dx * dx + dz * dz);
-                    
-                    if (distance < 1) {
-                        // Collect key
-                        key.userData.collected = true;
-                        key.visible = false;
-                        
-                        // Update key count
-                        keys.collected++;
-                        
-                        // Update UI
-                        document.getElementById('keyCounter').textContent = 
-                            `Keys: ${keys.collected}/${keys.total}`;
-                        
-                        // Check if all keys are collected
-                        if (keys.collected >= keys.total) {
-                            // Player wins
-                            gameOver = true;
-                            document.getElementById('victoryScreen').style.display = 'block';
-                            document.exitPointerLock();
-                        }
-                    }
-                }
-            }
-        }
-        
         function createCafeteriaObjects() {
                             // Create tables in a more asymmetric pattern
             const tablePositions = [
@@ -948,7 +821,7 @@
                 
                 const rightArm = new THREE.Mesh(armGeometry, armMaterial);
                 rightArm.rotation.z = -Math.PI / 3;
-                rightArm.position.set(-slothSize * 0.6, slothSize * 0.6, 0);
+                rightArm.position.set(slothSize * 0.6, slothSize * 0.6, 0);
                 sloth.add(rightArm);
                 
                 // Add elbow joints for creepier look
@@ -1267,7 +1140,6 @@
                 updatePlayerPosition(delta);
                 updateSloths(delta);
                 updateLights(delta); // Update the flickering lights
-                updateKeys(delta);   // Update the keys
                 
                 // Add new sloth every 30 seconds, up to a maximum of 8 sloths
                 if (sloths.length < 8) {
@@ -1285,7 +1157,6 @@
             // Reset game state
             gameOver = false;
             document.getElementById('gameOverScreen').style.display = 'none';
-            document.getElementById('victoryScreen').style.display = 'none';
             
             // Reset player position
             player.position.set(0, playerHeight / 2, 15);
@@ -1293,13 +1164,6 @@
             // Reset camera position
             camera.position.copy(player.position);
             camera.position.y = playerHeight;
-            
-            // Reset keys
-            if (keys.group) {
-                scene.remove(keys.group);
-            }
-            createKeys();
-            document.getElementById('keyCounter').textContent = 'Keys: 0/8';
             
             // Reset sloths
             for (const sloth of sloths) {
