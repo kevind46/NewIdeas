@@ -1236,9 +1236,136 @@
                 // Calculate speed (increases slowly with size)
                 const speed = sloth.baseSpeed + (sloth.size - 0.5) * sloth.speedGrowthFactor;
                 
-                // Move sloth towards player
+                // Store original position for collision detection
+                const originalPosition = sloth.position.clone();
+                
+                // Try to move sloth towards player
                 sloth.position.x += directionToPlayer.x * speed * delta;
                 sloth.position.z += directionToPlayer.z * speed * delta;
+                
+                // Check for collisions with objects
+                let collision = false;
+                for (const object of objects) {
+                    if (object instanceof THREE.Mesh && object !== floor) {
+                        // Sloth collision radius - increases with size
+                        const slothRadius = sloth.size * 0.5;
+                        
+                        // Box collision detection
+                        if (object.geometry.type === 'BoxGeometry') {
+                            // Get object dimensions
+                            const box = new THREE.Box3().setFromObject(object);
+                            const buffer = 0.2; // Same buffer used for player collisions
+                            const objectBox = new THREE.Box3(
+                                new THREE.Vector3(box.min.x + buffer, box.min.y, box.min.z + buffer),
+                                new THREE.Vector3(box.max.x - buffer, box.max.y, box.max.z - buffer)
+                            );
+                            
+                            // Check for collision
+                            if (sloth.position.x + slothRadius > objectBox.min.x && 
+                                sloth.position.x - slothRadius < objectBox.max.x &&
+                                sloth.position.z + slothRadius > objectBox.min.z &&
+                                sloth.position.z - slothRadius < objectBox.max.z) {
+                                
+                                collision = true;
+                                
+                                // Reset position and try alternative pathing
+                                sloth.position.copy(originalPosition);
+                                
+                                // Try to find a way around the obstacle using raycasting
+                                // Cast rays at different angles to find potential paths
+                                let foundPath = false;
+                                const numRays = 16; // Number of rays to try in a circle
+                                const rayDistance = speed * delta * 1.5; // Slightly farther than movement distance
+                                
+                                for (let i = 0; i < numRays && !foundPath; i++) {
+                                    const angle = (i / numRays) * Math.PI * 2;
+                                    const rayDirection = new THREE.Vector3(
+                                        Math.cos(angle),
+                                        0,
+                                        Math.sin(angle)
+                                    );
+                                    
+                                    // Cast a ray to check if this direction is clear
+                                    const raycaster = new THREE.Raycaster(
+                                        originalPosition.clone().setY(1), // Start ray from slightly above ground
+                                        rayDirection,
+                                        0,
+                                        rayDistance + slothRadius
+                                    );
+                                    const intersects = raycaster.intersectObjects(objects);
+                                    
+                                    // If no intersections, this path is clear
+                                    if (intersects.length === 0) {
+                                        // Weight this direction by how close it gets us to player
+                                        const dotProduct = rayDirection.dot(directionToPlayer);
+                                        
+                                        // If it's going somewhat towards player (dot product > 0)
+                                        // or if we're getting desperate (checked more than half the rays)
+                                        if (dotProduct > 0 || i > numRays / 2) {
+                                            // Move in this direction instead
+                                            sloth.position.x += rayDirection.x * speed * delta;
+                                            sloth.position.z += rayDirection.z * speed * delta;
+                                            foundPath = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                
+                                // If we couldn't find a path, just stay put for this frame
+                                if (!foundPath) {
+                                    sloth.position.copy(originalPosition);
+                                }
+                                
+                                break; // Stop checking other objects once we've found a collision
+                            }
+                        }
+                        // Cylinder collision detection
+                        else if (object.geometry.type === 'CylinderGeometry') {
+                            const dx = sloth.position.x - object.position.x;
+                            const dz = sloth.position.z - object.position.z;
+                            const distance = Math.sqrt(dx * dx + dz * dz);
+                            
+                            // Get approximate radius of cylindrical object
+                            let objectRadius = 0.5; // Default
+                            if (object.geometry.parameters) {
+                                objectRadius = Math.max(
+                                    object.geometry.parameters.radiusTop,
+                                    object.geometry.parameters.radiusBottom
+                                );
+                            }
+                            
+                            const minDistance = objectRadius + slothRadius;
+                            
+                            if (distance < minDistance) {
+                                collision = true;
+                                
+                                // Reset position and try to move around the obstacle
+                                sloth.position.copy(originalPosition);
+                                
+                                // Calculate tangent vectors (perpendicular to direction to obstacle)
+                                const toObstacle = new THREE.Vector3(dx, 0, dz).normalize();
+                                const tangent1 = new THREE.Vector3(-toObstacle.z, 0, toObstacle.x);
+                                const tangent2 = new THREE.Vector3(toObstacle.z, 0, -toObstacle.x);
+                                
+                                // Choose the tangent that's more aligned with direction to player
+                                const dot1 = tangent1.dot(directionToPlayer);
+                                const dot2 = tangent2.dot(directionToPlayer);
+                                const bestTangent = dot1 > dot2 ? tangent1 : tangent2;
+                                
+                                // Move along the best tangent
+                                sloth.position.x += bestTangent.x * speed * delta;
+                                sloth.position.z += bestTangent.z * speed * delta;
+                                
+                                break; // Stop checking other objects
+                            }
+                        }
+                    }
+                }
+                
+                // Keep sloth within bounds
+                const boundaryLimit = 19.5;
+                sloth.position.x = Math.max(-boundaryLimit, Math.min(boundaryLimit, sloth.position.x));
+                sloth.position.z = Math.max(-boundaryLimit, Math.min(boundaryLimit, sloth.position.z));
                 
                 // Rotate sloth to face player - add PI to make it face the opposite direction (toward player)
                 const angle = Math.atan2(directionToPlayer.x, directionToPlayer.z) + Math.PI;
