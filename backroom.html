@@ -360,15 +360,19 @@
                     pointLight.position.set(0, -0.3, 0);
                     fixture.add(pointLight);
                     
-                    // Add light properties for flickering
+                    // Add light properties with individual flickering behavior
                     lights.push({
                         fixture: fixture,
                         bulb: bulb,
                         light: pointLight,
                         baseIntensity: 1.0,
                         isFlickering: false,
-                        nextFlickerTime: Math.random() * 5 + 3, // Random time until first flicker
-                        isBroken: false
+                        nextFlickerTime: Math.random() * 10, // Randomize initial flicker timing for each light
+                        flickerDuration: 0,                  // How long this flicker will last
+                        isBroken: false,
+                        // Add individual flicker characteristics
+                        flickerFrequency: 0.1 + Math.random() * 0.2,  // How often the light flickers (individualized)
+                        flickerIntensity: 0.4 + Math.random() * 0.6   // How dramatically the light flickers (individualized)
                     });
                 }
             }
@@ -454,20 +458,20 @@
                 }
             }
             
-            // Update remaining lights with flickering behavior
+            // Update each light individually with its own flickering pattern
             for (const lightObj of cafeteriaLights) {
                 if (lightObj.isBroken) continue;
                 
-                // Countdown to next flicker event
+                // Countdown to next flicker event for this particular light
                 lightObj.nextFlickerTime -= delta;
                 
+                // Individual light flickering behavior
                 if (lightObj.nextFlickerTime <= 0) {
-                    // Time to change state
                     if (lightObj.isFlickering) {
-                        // Stop flickering
+                        // This light stops flickering
                         lightObj.isFlickering = false;
                         
-                        // Increased chance the light breaks permanently as darkness level increases
+                        // Check if the light breaks permanently
                         if (Math.random() < 0.15 + (darknessLevel * 0.2)) {
                             // Light breaks
                             lightObj.isBroken = true;
@@ -480,42 +484,54 @@
                             lightObj.light.intensity = adjustedIntensity;
                             lightObj.bulb.material.emissive.set(0xFFFFFF);
                             lightObj.bulb.material.emissiveIntensity = adjustedIntensity * 0.8;
+                            
+                            // Set a longer time until next flicker (varied by each light)
+                            // As darkness increases, lights flicker more often
+                            const flickerWaitFactor = 1.0 - darknessLevel * 0.5;
+                            lightObj.nextFlickerTime = (5 + Math.random() * 20) * flickerWaitFactor;
                         }
-                        
-                        // Set time until next flicker (shorter as darkness increases)
-                        lightObj.nextFlickerTime = Math.random() * 15 * (1 - darknessLevel * 0.5) + 7;
                     } else {
-                        // Start flickering
+                        // This light starts flickering
                         lightObj.isFlickering = true;
-                        // Flicker for a short duration (longer as darkness increases)
-                        lightObj.nextFlickerTime = Math.random() * 2 * (1 + darknessLevel) + 1;
+                        
+                        // Each light flickers for a different duration
+                        // As darkness increases, flickers last longer
+                        const flickerDurationFactor = 1.0 + darknessLevel;
+                        lightObj.flickerDuration = (0.5 + Math.random() * 1.5) * flickerDurationFactor;
+                        lightObj.nextFlickerTime = lightObj.flickerDuration;
                     }
                 }
                 
-                // Apply flickering effect with increased intensity as darkness grows
+                // Apply flickering effect for lights that are in flickering state
                 if (lightObj.isFlickering) {
-                    // Random flickering intensity (more aggressive in darker room)
-                    if (Math.random() < 0.1 + (darknessLevel * 0.2)) {
-                        const flickerIntensity = Math.random() * lightObj.baseIntensity * (1 - darknessLevel * 0.5);
+                    // Each light has its own flickering frequency and intensity
+                    const flickerFreq = lightObj.flickerFrequency * (1 + darknessLevel * 0.5);
+                    
+                    // Create a sine wave pattern with some randomness for natural flickering
+                    // Each light uses its unique frequency and intensity values
+                    if (Math.random() < flickerFreq) {
+                        // Fluctuate intensity based on this light's characteristics
+                        const minIntensity = 0.1;
+                        const maxIntensity = lightObj.baseIntensity * (1 - darknessLevel * 0.4);
+                        const flickerRange = lightObj.flickerIntensity * (maxIntensity - minIntensity);
+                        const flickerIntensity = minIntensity + Math.random() * flickerRange;
+                        
                         lightObj.light.intensity = flickerIntensity;
                         
-                        // Update bulb emissive to match light intensity
+                        // Update bulb appearance to match light intensity
+                        const emissiveIntensity = flickerIntensity * 0.8;
                         const emissiveValue = flickerIntensity > 0.3 ? 0xFFFFFF : 0x555555;
-                        const emissiveIntensity = flickerIntensity;
                         lightObj.bulb.material.emissive.set(emissiveValue);
                         lightObj.bulb.material.emissiveIntensity = emissiveIntensity;
-                        
-                        // Reduce light distance as darkness progresses for more isolated light pools
-                        lightObj.light.distance = 15 - darknessLevel * 5;
                     }
-                } 
-                else if (!lightObj.isBroken) {
-                    // Gradually reduce the light distance for working lights
-                    // Even functioning lights should have reduced range in the deepening darkness
-                    lightObj.light.distance = 15 - darknessLevel * 5; // Less reduction in light distance
                     
-                    // Also reduce the actual intensity of working lights over time
-                    lightObj.light.intensity = lightObj.baseIntensity * (1 - darknessLevel * 0.4); // Less intensity reduction
+                    // Adjust light distance during flickering
+                    lightObj.light.distance = 15 - darknessLevel * 5;
+                }
+                else if (!lightObj.isBroken) {
+                    // Working lights maintain better intensity and range
+                    lightObj.light.distance = 15 - darknessLevel * 5;
+                    lightObj.light.intensity = lightObj.baseIntensity * (1 - darknessLevel * 0.4);
                 }
             }
         }
@@ -1314,16 +1330,17 @@
             sloths = [];
             createSloths(); // This will create exactly 3 sloths
             
-            // Reset and repair more lights when starting a new game
+            // Reset and repair lights when starting a new game
             for (const light of cafeteriaLights) {
-                // Higher chance to fix lights for reset (50% instead of 30%)
+                // Reset individual light properties
                 if (Math.random() < 0.5) {
                     light.isBroken = false;
                     light.isFlickering = false;
                     light.light.intensity = light.baseIntensity;
                     light.bulb.material.emissive.set(0xFFFFFF);
                     light.bulb.material.emissiveIntensity = 0.8;
-                    light.nextFlickerTime = Math.random() * 5 + 3;
+                    // Give each light its own randomly staggered start time
+                    light.nextFlickerTime = Math.random() * 15 + 3;
                 }
             }
             
