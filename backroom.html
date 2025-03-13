@@ -378,8 +378,8 @@
         
         // Update lights with flickering and failures
         function updateLights(delta) {
-            // Progress the darkness level over time
-            darknessLevel = Math.min(0.98, darknessLevel + darknessRate * delta);
+            // Progress the darkness level more gradually over time
+            darknessLevel = Math.min(0.98, darknessLevel + darknessRate * 0.7 * delta); // Reduced rate by 30%
             
             // Count how many working lights are near the player
             const playerPosition = new THREE.Vector3(player.position.x, 0, player.position.z);
@@ -401,30 +401,50 @@
             }
             
             // Make ambient intensity depend on both darkness level and nearby working lights
-            // This creates areas of near-total darkness when no lights are nearby
-            const baseAmbientLevel = 0.25 - (darknessLevel * 0.23); // Gets down to 0.02 ambient
             let ambientIntensity;
             
             if (nearbyWorkingLights === 0) {
-                // If no working lights nearby, make it extremely dark
-                ambientIntensity = Math.max(0.02, baseAmbientLevel * 0.3);
+                // If no working lights nearby, make it extremely dark but not as quickly
+                ambientIntensity = Math.max(0.015, 0.25 - (darknessLevel * 0.235)); // Less steep decline
             } else {
-                // Some working lights nearby, slightly less dark
-                ambientIntensity = Math.max(0.04, baseAmbientLevel);
+                // Some working lights nearby - maintain decent visibility longer
+                // Higher base ambient light when lights are nearby - scales with number of lights
+                const lightBonus = Math.min(0.15, nearbyWorkingLights * 0.05);
+                ambientIntensity = Math.max(0.05, 0.25 - (darknessLevel * 0.2) + lightBonus);
             }
             
             ambientLight.intensity = ambientIntensity;
             
-            // Adjust fog density and distance based on darkness level
-            scene.fog.density = 0.05 + (darknessLevel * 0.1);
-            scene.fog.near = Math.max(3, 15 - darknessLevel * 12); // Fog starts much closer
+            // Adjust fog settings based on working lights and darkness level
+            if (nearbyWorkingLights === 0) {
+                // Very dense fog when no lights are nearby - keep the limited visibility in darkness
+                scene.fog.near = Math.max(1, 4 - darknessLevel * 3);
+                scene.fog.far = Math.max(4, 15 - darknessLevel * 12);
+            } else {
+                // More reasonable fog when lights are nearby - scales with number of nearby lights
+                // Better visibility with more lights - each light extends visibility
+                const visibilityBonus = Math.min(5, nearbyWorkingLights * 2); 
+                scene.fog.near = Math.max(5, 15 - (darknessLevel * 0.7 * 12) + visibilityBonus);
+                scene.fog.far = Math.max(15, 30 - (darknessLevel * 0.7 * 20) + visibilityBonus);
+            }
             
-            // Randomly fail more lights as time progresses
+            // Update fog color to be less dark when lights are present
+            const baseBrightness = Math.floor(ambientIntensity * 30);
+            const fogBrightness = nearbyWorkingLights > 0 ? 
+                                 baseBrightness + Math.min(10, nearbyWorkingLights * 3) : 
+                                 baseBrightness;
+            
+            scene.fog.color.set(`rgb(${fogBrightness}, ${fogBrightness}, ${fogBrightness})`);
+            scene.background.set(scene.fog.color);
+            
+            // Adjust broken light probability to slow down light failures
             const gameTime = clock.getElapsedTime();
-            if (gameTime - lastLightFailTime > 15 && Math.random() < darknessLevel * 0.4) {
+            const failureThreshold = 0.4 * Math.min(darknessLevel, 0.7); // Cap the failure chance
+            
+            if (gameTime - lastLightFailTime > 20 && Math.random() < failureThreshold) { // Increased time between failures
                 // Find a working light to break
                 const workingLights = cafeteriaLights.filter(light => !light.isBroken);
-                if (workingLights.length > 2) { // Keep at least 2 lights working
+                if (workingLights.length > Math.max(3, cafeteriaLights.length * 0.3)) { // Keep more lights working
                     const randomLight = workingLights[Math.floor(Math.random() * workingLights.length)];
                     randomLight.isBroken = true;
                     randomLight.light.intensity = 0;
@@ -492,10 +512,10 @@
                 else if (!lightObj.isBroken) {
                     // Gradually reduce the light distance for working lights
                     // Even functioning lights should have reduced range in the deepening darkness
-                    lightObj.light.distance = 15 - darknessLevel * 7;
+                    lightObj.light.distance = 15 - darknessLevel * 5; // Less reduction in light distance
                     
                     // Also reduce the actual intensity of working lights over time
-                    lightObj.light.intensity = lightObj.baseIntensity * (1 - darknessLevel * 0.5);
+                    lightObj.light.intensity = lightObj.baseIntensity * (1 - darknessLevel * 0.4); // Less intensity reduction
                 }
             }
         }
@@ -1259,13 +1279,8 @@
                 updateSloths(delta);
                 updateLights(delta); // Update the flickering lights
                 
-                // Add new sloth every 30 seconds, up to a maximum of 8 sloths
-                if (sloths.length < 8) {
-                    const gameTime = clock.getElapsedTime();
-                    if (gameTime > sloths.length * 30) {
-                        createSloths(1); // Create an additional sloth
-                    }
-                }
+                // Remove the code that adds new sloths every 30 seconds
+                // This ensures only the initial 3 sloths will be in the game
             }
             
             renderer.render(scene, camera);
@@ -1279,9 +1294,11 @@
             // Reset darkness progression
             darknessLevel = 0;
             lastLightFailTime = 0;
-            ambientLight.intensity = 0.25; // Match the new lower initial value
-            scene.fog.density = 0.05;
+            ambientLight.intensity = 0.25;
             scene.fog.near = 15;
+            scene.fog.far = 30;
+            scene.fog.color.set(0x080808);
+            scene.background.set(0x0A0A0A);
             
             // Reset player position
             player.position.set(0, playerHeight / 2, 15);
@@ -1290,12 +1307,12 @@
             camera.position.copy(player.position);
             camera.position.y = playerHeight;
             
-            // Reset sloths
+            // Reset sloths - only the initial 3
             for (const sloth of sloths) {
                 scene.remove(sloth);
             }
             sloths = [];
-            createSloths();
+            createSloths(); // This will create exactly 3 sloths
             
             // Reset and repair more lights when starting a new game
             for (const light of cafeteriaLights) {
