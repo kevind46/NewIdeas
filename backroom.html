@@ -1231,17 +1231,80 @@
                 const directionToPlayer = new THREE.Vector3();
                 directionToPlayer.subVectors(player.position, sloth.position);
                 directionToPlayer.y = 0; // Keep on ground plane
+                
+                // Calculate distance to player
+                const distanceToPlayer = directionToPlayer.length();
                 directionToPlayer.normalize();
                 
                 // Calculate speed (increases slowly with size)
                 const speed = sloth.baseSpeed + (sloth.size - 0.5) * sloth.speedGrowthFactor;
                 
+                // Calculate repulsion from other sloths (to avoid clumping)
+                const repulsion = new THREE.Vector3();
+                
+                // Only apply significant spreading when not very close to player
+                // This ensures they still prioritize catching the player when close
+                const spreadFactor = Math.min(1.0, distanceToPlayer / 10); // Full spread effect beyond 10 units
+                
+                // Calculate repulsion from other sloths
+                for (const otherSloth of sloths) {
+                    if (otherSloth !== sloth) {
+                        const toOtherSloth = new THREE.Vector3();
+                        toOtherSloth.subVectors(otherSloth.position, sloth.position);
+                        toOtherSloth.y = 0; // Keep on ground plane
+                        
+                        const distance = toOtherSloth.length();
+                        
+                        // Apply stronger repulsion for closer sloths
+                        if (distance < 5) {
+                            // Create repulsion vector (away from other sloth)
+                            const repulsionStrength = 1 - (distance / 5); // 1 when touching, 0 at distance of 5
+                            toOtherSloth.normalize().multiplyScalar(-repulsionStrength); // Negative to push away
+                            repulsion.add(toOtherSloth);
+                        }
+                    }
+                }
+                
+                // Normalize repulsion if it exists
+                if (repulsion.lengthSq() > 0) {
+                    repulsion.normalize();
+                }
+                
+                // Combine directions: Player pursuit vs spreading
+                // When close to player, focus on pursuit; when far, allow more spreading
+                const moveDirection = new THREE.Vector3();
+                
+                // At close range, just pursue player
+                if (distanceToPlayer < 3) {
+                    moveDirection.copy(directionToPlayer);
+                } 
+                // Middle range - blend pursuit with spreading
+                else {
+                    // Balance between pursuit (more important) and spreading (secondary)
+                    // Direction = 85-70% pursuit + 15-30% spreading, based on distance
+                    const pursuitWeight = 0.85 - (spreadFactor * 0.15); // Ranges from 0.85 to 0.70
+                    const spreadWeight = 1 - pursuitWeight; // Ranges from 0.15 to 0.30
+                    
+                    moveDirection.addVectors(
+                        directionToPlayer.clone().multiplyScalar(pursuitWeight),
+                        repulsion.clone().multiplyScalar(spreadWeight)
+                    );
+                    
+                    // Ensure we have a normalized direction
+                    if (moveDirection.lengthSq() > 0) {
+                        moveDirection.normalize();
+                    } else {
+                        // Fallback to pure pursuit if no direction was calculated
+                        moveDirection.copy(directionToPlayer);
+                    }
+                }
+                
                 // Store original position for collision detection
                 const originalPosition = sloth.position.clone();
                 
-                // Try to move sloth towards player
-                sloth.position.x += directionToPlayer.x * speed * delta;
-                sloth.position.z += directionToPlayer.z * speed * delta;
+                // Move sloth along the calculated direction
+                sloth.position.x += moveDirection.x * speed * delta;
+                sloth.position.z += moveDirection.z * speed * delta;
                 
                 // Check for collisions with objects
                 let collision = false;
@@ -1367,9 +1430,9 @@
                 sloth.position.x = Math.max(-boundaryLimit, Math.min(boundaryLimit, sloth.position.x));
                 sloth.position.z = Math.max(-boundaryLimit, Math.min(boundaryLimit, sloth.position.z));
                 
-                // Rotate sloth to face player - add PI to make it face the opposite direction (toward player)
-                const angle = Math.atan2(directionToPlayer.x, directionToPlayer.z) + Math.PI;
-                sloth.rotation.y = angle;
+                // Rotate sloth to face player - this ensures they look menacing regardless of movement
+                const angleToPlayer = Math.atan2(directionToPlayer.x, directionToPlayer.z) + Math.PI;
+                sloth.rotation.y = angleToPlayer;
                 
                 // Check for collision with player
                 const dx = player.position.x - sloth.position.x;
