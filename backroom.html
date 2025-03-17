@@ -68,6 +68,19 @@
             cursor: pointer;
             z-index: 10;
         }
+        #timerDisplay {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            pointer-events: none;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -83,12 +96,14 @@
     <div id="gameOverScreen">
         <h2>GAME OVER</h2>
         <p>You were caught by a sloth!</p>
+        <p id="finalTimeDisplay">You survived for 0 seconds</p>
         <button id="playAgainBtn">Play Again</button>
     </div>
     <div id="instructions">
         Click to play<br>
         Use W,A,S,D to move and mouse to look left/right
     </div>
+    <div id="timerDisplay">time alive: 0s</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
@@ -105,6 +120,11 @@
         let darknessLevel = 0; // Darkness progression (0-1)
         let darknessRate = 0.01; // How quickly the room darkens per second
         let lastLightFailTime = 0; // Track when the last light failed
+        
+        // Timer variables
+        let gameStartTime = 0;
+        let elapsedTime = 0;
+        let timerActive = false;
         
         // Movement variables
         let moveForward = false;
@@ -127,6 +147,12 @@
                 // Pointer is locked
                 isPointerLocked = true;
                 document.getElementById('instructions').style.display = 'none';
+                
+                // Start the timer when game begins
+                if (!timerActive && !gameOver) {
+                    startTimer();
+                    document.getElementById('timerDisplay').style.display = 'block';
+                }
             } else {
                 // Pointer is unlocked
                 isPointerLocked = false;
@@ -134,6 +160,29 @@
                     document.getElementById('instructions').style.display = 'flex';
                 }
             }
+        }
+        
+        // Timer functions
+        function startTimer() {
+            gameStartTime = Date.now();
+            timerActive = true;
+            updateTimer();
+        }
+        
+        function updateTimer() {
+            if (!timerActive) return;
+            
+            elapsedTime = Math.floor((Date.now() - gameStartTime) / 1000);
+            document.getElementById('timerDisplay').textContent = `time alive: ${elapsedTime}s`;
+            
+            if (!gameOver) {
+                requestAnimationFrame(updateTimer);
+            }
+        }
+        
+        function stopTimer() {
+            timerActive = false;
+            document.getElementById('finalTimeDisplay').textContent = `You survived for ${elapsedTime} seconds`;
         }
         
         init();
@@ -1441,6 +1490,7 @@
                 
                 if (distance < player.collisionRadius + sloth.size * 0.5) {
                     gameOver = true;
+                    stopTimer(); // Stop the timer when caught
                     document.getElementById('gameOverScreen').style.display = 'block';
                     document.exitPointerLock();
                 }
@@ -1496,6 +1546,12 @@
             // Reset game state
             gameOver = false;
             document.getElementById('gameOverScreen').style.display = 'none';
+            
+            // Reset timer
+            elapsedTime = 0;
+            document.getElementById('timerDisplay').textContent = `time alive: ${elapsedTime}s`;
+            document.getElementById('timerDisplay').style.display = 'block';
+            startTimer();
             
             // Reset darkness progression
             darknessLevel = 0;
