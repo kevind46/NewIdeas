@@ -324,6 +324,19 @@
             scene.add(northWall);
             objects.push(northWall);
             
+            // Add "ANIMAL TESTING" text to north wall with fixed size and orientation
+            const facilitySign = createTextTexture("ANIMAL TESTING", 256, 64, "#990000", "#EEDDCC", "28px Arial");
+            const facilitySignGeometry = new THREE.PlaneGeometry(4, 1);
+            const facilitySignMaterial = new THREE.MeshBasicMaterial({ 
+                map: facilitySign, 
+                transparent: true,
+                side: THREE.DoubleSide
+            });
+            const facilitySignMesh = new THREE.Mesh(facilitySignGeometry, facilitySignMaterial);
+            // Fix position and orientation - face into the room
+            facilitySignMesh.position.set(0, wallHeight/2, -19.7);
+            scene.add(facilitySignMesh);
+            
             // South wall
             const southWall = northWall.clone();
             southWall.position.set(0, wallHeight/2, 20);
@@ -339,11 +352,30 @@
             scene.add(eastWall);
             objects.push(eastWall);
             
+            // Add "DO NOT ENTER ALONE" warning to east wall (smaller and adjusted)
+            const warningSign = createTextTexture("DO NOT ENTER ALONE", 256, 64, "#990000", "#EEDDCC", "24px Arial");
+            const warningSignGeometry = new THREE.PlaneGeometry(5, 1.25);
+            const warningSignMaterial = new THREE.MeshBasicMaterial({ 
+                map: warningSign, 
+                transparent: true,
+                side: THREE.DoubleSide
+            });
+            const warningSignMesh = new THREE.Mesh(warningSignGeometry, warningSignMaterial);
+            warningSignMesh.position.set(19.7, wallHeight/2, -5);
+            warningSignMesh.rotation.y = -Math.PI / 2;
+            scene.add(warningSignMesh);
+            
             // West wall
             const westWall = eastWall.clone();
             westWall.position.set(-20, wallHeight/2, 0);
             scene.add(westWall);
             objects.push(westWall);
+            
+            // Add simplified radioactive symbol to west wall
+            const radioSymbol = createSimpleRadioactiveSymbol();
+            radioSymbol.position.set(-19.7, wallHeight/2, 5);
+            radioSymbol.rotation.y = Math.PI / 2;
+            scene.add(radioSymbol);
             
             // Create ceiling with proper positioning
             const ceilingGeometry = new THREE.PlaneGeometry(40, 40);
@@ -374,6 +406,93 @@
             objects.push(door);
         }
         
+        // Function to create a text texture for signs
+        function createTextTexture(text, width, height, bgColor, textColor, font) {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            
+            // Fill background
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, width, height);
+            
+            // Add border
+            ctx.strokeStyle = textColor;
+            ctx.lineWidth = 6;
+            ctx.strokeRect(4, 4, width - 8, height - 8);
+            
+            // Add text
+            ctx.fillStyle = textColor;
+            ctx.font = font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, width / 2, height / 2);
+            
+            // Create weathered/worn effect
+            for (let i = 0; i < 400; i++) {
+                const x = Math.random() * width;
+                const y = Math.random() * height;
+                const size = Math.random() * 2 + 1;
+                ctx.globalAlpha = Math.random() * 0.2;
+                ctx.fillStyle = "#000000";
+                ctx.fillRect(x, y, size, size);
+            }
+            
+            ctx.globalAlpha = 1.0;
+            
+            // Create texture from canvas
+            const texture = new THREE.CanvasTexture(canvas);
+            return texture;
+        }
+        
+        // Function to create a simple radioactive symbol with yellow circle and three black thirds
+        function createSimpleRadioactiveSymbol() {
+            const group = new THREE.Group();
+            
+            // Create black backing circle for contrast
+            const backingGeometry = new THREE.CircleGeometry(1.6, 32);
+            const backingMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const backing = new THREE.Mesh(backingGeometry, backingMaterial);
+            group.add(backing);
+            
+            // Create yellow main circle
+            const circleGeometry = new THREE.CircleGeometry(1.5, 32);
+            const circleMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF00 });
+            const circle = new THREE.Mesh(circleGeometry, circleMaterial);
+            circle.position.z = 0.01;
+            group.add(circle);
+            
+            // Create center black dot
+            const centerGeometry = new THREE.CircleGeometry(0.3, 16);
+            const centerMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const center = new THREE.Mesh(centerGeometry, centerMaterial);
+            center.position.z = 0.02;
+            group.add(center);
+            
+            // Create three black circles positioned in thirds around the main circle
+            // Start from bottom (South position at 270 degrees or -90 degrees)
+            const startAngle = -Math.PI/2; // -90 degrees, bottom position
+            
+            for (let i = 0; i < 3; i++) {
+                const angle = startAngle + (i * Math.PI * 2) / 3;
+                
+                // Calculate position at 2/3 of the radius from center
+                const x = Math.cos(angle) * 0.9;
+                const y = Math.sin(angle) * 0.9;
+                
+                // Create black circle
+                const blackCircleGeometry = new THREE.CircleGeometry(0.35, 16);
+                const blackCircleMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const blackCircle = new THREE.Mesh(blackCircleGeometry, blackCircleMaterial);
+                
+                blackCircle.position.set(x, y, 0.02);
+                group.add(blackCircle);
+            }
+            
+            return group;
+        }
+
         // Add ceiling lights with flickering capability
         function createCeilingLights() {
             const lights = [];
