@@ -352,8 +352,8 @@
             scene.add(eastWall);
             objects.push(eastWall);
             
-            // Add "DO NOT ENTER ALONE" warning to east wall (smaller and adjusted)
-            const warningSign = createTextTexture("DO NOT ENTER ALONE", 256, 64, "#990000", "#EEDDCC", "24px Arial");
+            // Add "DO NOT ENTER ALONE" warning to east wall with smaller font
+            const warningSign = createTextTexture("DO NOT ENTER ALONE", 256, 64, "#990000", "#EEDDCC", "22px Arial"); // Reduced from 24px to 22px
             const warningSignGeometry = new THREE.PlaneGeometry(5, 1.25);
             const warningSignMaterial = new THREE.MeshBasicMaterial({ 
                 map: warningSign, 
