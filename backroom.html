@@ -456,14 +456,14 @@
             const backing = new THREE.Mesh(backingGeometry, backingMaterial);
             group.add(backing);
             
-            // Create yellow main circle with duller color for worn-out look
+            // Create main circle with more yellow but still worn-out look
             const circleGeometry = new THREE.CircleGeometry(1.5, 32);
-            const circleMaterial = new THREE.MeshBasicMaterial({ color: 0xCCCC00 }); // More muted yellow (was 0xFFFF00)
+            const circleMaterial = new THREE.MeshBasicMaterial({ color: 0xCCCC55 }); // More yellow (was 0xCCBB77)
             const circle = new THREE.Mesh(circleGeometry, circleMaterial);
             circle.position.z = 0.01;
             group.add(circle);
             
-            // Create center black dot (smaller)
+            // Create center black dot
             const centerGeometry = new THREE.CircleGeometry(0.2, 16);
             const centerMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
             const center = new THREE.Mesh(centerGeometry, centerMaterial);
@@ -481,8 +481,8 @@
                 const x = Math.cos(angle) * 0.9;
                 const y = Math.sin(angle) * 0.9;
                 
-                // Create black circle (slightly smaller)
-                const blackCircleGeometry = new THREE.CircleGeometry(0.4, 16); // Reduced from 0.45 to 0.4
+                // Create black circle
+                const blackCircleGeometry = new THREE.CircleGeometry(0.4, 16);
                 const blackCircleMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
                 const blackCircle = new THREE.Mesh(blackCircleGeometry, blackCircleMaterial);
                 
